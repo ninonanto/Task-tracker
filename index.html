@@ -238,7 +238,7 @@ dialog h2 { font-family: var(--font-display); font-size: 21px; margin: 0 0 12px;
    Paste your Apps Script web app URL between the quotes.
    It looks like: https://script.google.com/macros/s/AKfy..../exec
    ===================================================== */
-var API_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
+var API_URL = "https://script.google.com/macros/s/AKfycbzdWholh4b1Y5cQ9FgqpISwr6JMgzAW2ZxXXOYf7vjW6BJOOfxRGLxE1kLK3GLhRS2NaA/exec";
 </script>
 
 <script>
@@ -572,7 +572,7 @@ var API_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
   $("today").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   render();
 
-  if (!API_URL || API_URL.indexOf("https://script.google.com/macros/s/AKfycbzdWholh4b1Y5cQ9FgqpISwr6JMgzAW2ZxXXOYf7vjW6BJOOfxRGLxE1kLK3GLhRS2NaA/exec") === 0) {
+  if (!API_URL || API_URL.indexOf("PASTE_") === 0) {
     loaded = true; render();
     setSync("err", "Not connected");
     notice("Setup needed: open this file, find API_URL near the bottom, and paste your Apps Script web app URL. See SETUP-GUIDE for steps.");
