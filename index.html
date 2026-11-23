@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one working column. Summary strip on top (counts double as filters),
+   quick-add bar, then a dense task ledger where a left stripe carries status. */
+:root {
+  --bg: #f1f4f6;
+  --surface: #ffffff;
+  --ink: #14232e;
+  --muted: #5d6f7c;
+  --line: #d6dee4;
+  --accent: #0b6e75;
+  --accent-ink: #ffffff;
+  --accent-soft: #dff0f0;
+  --ok: #2c7a4b;
+  --ok-soft: #dff1e5;
+  --warn: #a2620a;
+  --warn-soft: #fbeed3;
+  --crit: #b3362b;
+  --crit-soft: #fae1dd;
+  --idle: #7c8b96;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f181e; --surface: #17232b; --ink: #e6eef2; --muted: #93a5b1; --line: #2b3b46;
+    --accent: #4fc0c4; --accent-ink: #06262a; --accent-soft: #143a3d;
+    --ok: #6cc68e; --ok-soft: #173826; --warn: #e3ac4d; --warn-soft: #3d2f12;
+    --crit: #f08478; --crit-soft: #44201c; --idle: #8497a3;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f181e; --surface: #17232b; --ink: #e6eef2; --muted: #93a5b1; --line: #2b3b46;
+  --accent: #4fc0c4; --accent-ink: #06262a; --accent-soft: #143a3d;
+  --ok: #6cc68e; --ok-soft: #173826; --warn: #e3ac4d; --warn-soft: #3d2f12;
+  --crit: #f08478; --crit-soft: #44201c; --idle: #8497a3;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.45;
+}
+.wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 18px; }
+h1 { font-family: var(--font-display); font-size: 30px; line-height: 1.1; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+.head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+.head p { margin: 4px 0 0; color: var(--muted); }
+.progress { min-width: 220px; flex: 1 1 220px; max-width: 340px; }
+.progress .label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.progress .label strong { color: var(--ink); font-weight: 600; }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 6px; }
+.bar > i { display: block; height: 100%; background: var(--ok); width: 0; transition: width .3s; }
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+
+.notice { background: var(--warn-soft); color: var(--ink); border-left: 4px solid var(--warn); padding: 10px 12px; border-radius: 4px; font-size: 14px; }
+.notice[hidden] { display: none; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.tile {
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--idle);
+  border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px;
+}
+.tile b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+.tile span { font-size: 13px; color: var(--muted); }
+.tile[data-f="doing"] { border-top-color: var(--accent); }
+.tile[data-f="blocked"] { border-top-color: var(--warn); }
+.tile[data-f="overdue"] { border-top-color: var(--crit); }
+.tile[data-f="done"] { border-top-color: var(--ok); }
+.tile[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.tile:hover { border-color: var(--accent); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px; }
+.add { display: grid; grid-template-columns: 2.4fr 1.1fr 1fr 1fr auto; gap: 10px; align-items: end; }
+@media (max-width: 760px) { .add { grid-template-columns: 1fr 1fr; } .add .f-title, .add .f-btn { grid-column: 1 / -1; } }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 500; }
+input, select, textarea {
+  font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; width: 100%; min-width: 0;
+}
+textarea { resize: vertical; min-height: 70px; }
+button { font: inherit; cursor: pointer; }
+.btn { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 5px; padding: 8px 16px; font-weight: 600; white-space: nowrap; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); font-weight: 500; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.btn.danger { background: var(--crit); border-color: var(--crit); color: #fff; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-allowed; }
+
+.tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.tools label.f { flex: 1 1 150px; }
+.tools .grow { flex: 3 1 220px; }
+
+.list { display: flex; flex-direction: column; gap: 8px; }
+.task {
+  background: var(--surface); border: 1px solid var(--line); border-left: 5px solid var(--idle);
+  border-radius: 6px; padding: 10px 12px;
+  display: grid; grid-template-columns: auto 1fr auto; gap: 6px 12px; align-items: start;
+}
+.task[data-s="doing"] { border-left-color: var(--accent); }
+.task[data-s="blocked"] { border-left-color: var(--warn); }
+.task[data-s="done"] { border-left-color: var(--ok); }
+.task.overdue { border-left-color: var(--crit); }
+.task input[type="checkbox"] { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--ok); padding: 0; }
+.task .title { font-weight: 600; overflow-wrap: anywhere; }
+.task[data-s="done"] .title { text-decoration: line-through; color: var(--muted); font-weight: 500; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; color: var(--muted); margin-top: 3px; align-items: center; }
+.notes { font-size: 13px; color: var(--muted); margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; background: var(--line); color: var(--ink); }
+.pill.high { background: var(--crit-soft); color: var(--crit); }
+.pill.medium { background: var(--warn-soft); color: var(--warn); }
+.pill.low { background: var(--accent-soft); color: var(--accent); }
+.pill.late { background: var(--crit); color: #fff; }
+.pill.soon { background: var(--warn-soft); color: var(--warn); }
+.ctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.ctl select { width: auto; padding: 4px 8px; font-size: 13px; }
+@media (max-width: 560px) { .task { grid-template-columns: auto 1fr; } .ctl { grid-column: 1 / -1; justify-content: flex-start; } }
+.empty { text-align: center; color: var(--muted); padding: 28px 12px; border: 1px dashed var(--line); border-radius: 6px; }
+.count { font-size: 13px; color: var(--muted); }
+
+dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); padding: 18px; width: min(520px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(10, 20, 26, .5); }
+dialog h2 { font-family: var(--font-display); font-size: 21px; margin: 0 0 12px; }
+.form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form .full { grid-column: 1 / -1; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; margin-top: 14px; }
+.actions > div { display: flex; gap: 8px; }
+.stamp { font-size: 12px; color: var(--muted); margin-top: 10px; }
+.sync { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.sync .dot::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); margin-right: 6px; vertical-align: 1px; }
+.sync .dot.ok::before { background: var(--ok); }
+.sync .dot.busy::before { background: var(--warn); }
+.sync .dot.err::before { background: var(--crit); }
+.sync #refresh { margin-left: auto; }
+.err-text { color: var(--crit); font-size: 13px; min-height: 1.2em; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <div>
+      <h1>Task Tracker</h1>
+      <p id="today"></p>
+    </div>
+    <div class="progress" aria-label="Completion">
+      <div class="label"><span><strong id="pDone">0</strong> of <span id="pAll">0</span> done</span><strong id="pPct">0%</strong></div>
+      <div class="bar"><i id="pBar"></i></div>
+    </div>
+  </header>
+
+  <div class="sync">
+    <span id="syncState" class="dot">Connecting…</span>
+    <button class="btn ghost small" id="refresh" type="button">Refresh</button>
+    <button class="btn ghost small" id="lock" type="button">Change passcode</button>
+  </div>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <section class="tiles" aria-label="Summary, select one to filter">
+    <button class="tile" data-f="open" aria-pressed="false"><b id="nOpen">0</b><span>Open</span></button>
+    <button class="tile" data-f="doing" aria-pressed="false"><b id="nDoing">0</b><span>In progress</span></button>
+    <button class="tile" data-f="blocked" aria-pressed="false"><b id="nBlocked">0</b><span>Blocked</span></button>
+    <button class="tile" data-f="overdue" aria-pressed="false"><b id="nOverdue">0</b><span>Overdue</span></button>
+    <button class="tile" data-f="done" aria-pressed="false"><b id="nDone">0</b><span>Done</span></button>
+  </section>
+
+  <form class="panel add" id="addForm" autocomplete="off">
+    <label class="f f-title">New task<input id="aTitle" required maxlength="200" placeholder="What needs to be done?"></label>
+    <label class="f">Owner<input id="aOwner" maxlength="60" list="owners" placeholder="Who"></label>
+    <label class="f">Priority
+      <select id="aPriority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select>
+    </label>
+    <label class="f">Due date<input id="aDue" type="date"></label>
+    <div class="f-btn"><button class="btn" id="aBtn" type="submit">Add task</button></div>
+  </form>
+  <datalist id="owners"></datalist>
+
+  <section class="tools">
+    <label class="f grow">Search<input id="q" type="search" placeholder="Title, owner or notes"></label>
+    <label class="f">Owner<select id="fOwner"><option value="">Everyone</option></select></label>
+    <label class="f">Sort by
+      <select id="sort"><option value="due">Due date</option><option value="priority">Priority</option><option value="new">Newest first</option><option value="updated">Last updated</option></select>
+    </label>
+    <button class="btn ghost" id="clear" type="button">Show all</button>
+  </section>
+
+  <div class="count" id="count"></div>
+  <section class="list" id="list" aria-live="polite"><div class="empty">Loading tasks…</div></section>
+</div>
+
+<dialog id="dlg">
+  <form id="editForm" method="dialog" autocomplete="off">
+    <h2>Edit task</h2>
+    <div class="form">
+      <label class="f full">Task<input id="eTitle" required maxlength="200"></label>
+      <label class="f">Owner<input id="eOwner" maxlength="60" list="owners"></label>
+      <label class="f">Due date<input id="eDue" type="date"></label>
+      <label class="f">Priority
+        <select id="ePriority"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+      </label>
+      <label class="f">Status
+        <select id="eStatus"><option value="todo">To do</option><option value="doing">In progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select>
+      </label>
+      <label class="f full">Notes<textarea id="eNotes" maxlength="2000" placeholder="Details, blockers, next step"></textarea></label>
+    </div>
+    <div class="stamp" id="eStamp"></div>
+    <div class="actions">
+      <button class="btn ghost" id="eDelete" type="button">Delete task</button>
+      <div>
+        <button class="btn ghost" id="eCancel" type="button">Cancel</button>
+        <button class="btn" id="eSave" type="submit">Save changes</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="keyDlg">
+  <form id="keyForm" method="dialog" autocomplete="off">
+    <h2>Enter team passcode</h2>
+    <label class="f">Passcode<input id="keyInput" type="password" required></label>
+    <p class="err-text" id="keyErr"></p>
+    <div class="actions"><span></span><div><button class="btn" type="submit">Open tracker</button></div></div>
+  </form>
+</dialog>
+
+<script>
+/* ======================= SETUP =======================
+   Paste your Apps Script web app URL between the quotes.
+   It looks like: https://script.google.com/macros/s/AKfy..../exec
+   ===================================================== */
+var API_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
+</script>
+
+<script>
+(function () {
+  "use strict";
+  var STATUS = { todo: "To do", doing: "In progress", blocked: "Blocked", done: "Done" };
+  var PRI = { high: "High", medium: "Medium", low: "Low" };
+  var PRI_RANK = { high: 0, medium: 1, low: 2 };
+
+  var tasks = [];
+  var readOnly = false;
+  var loaded = false;
+  var filter = "";        // "", open, doing, blocked, overdue, done
+  var editingId = null;
+  var deleteArmed = false;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  };
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function dayDiff(due) {
+    var a = new Date(due + "T00:00:00"), b = new Date(todayStr() + "T00:00:00");
+    return Math.round((a - b) / 86400000);
+  }
+  function fmtDate(s) {
+    var d = new Date(s + "T00:00:00");
+    return isNaN(d) ? s : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  }
+  function fmtStamp(ms) {
+    if (!ms) return "";
+    return new Date(ms).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+  function isOverdue(t) { return t.status !== "done" && t.due && dayDiff(t.due) < 0; }
+  function newId() { return "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+  function notice(msg) {
+    var n = $("notice");
+    if (!msg) { n.hidden = true; n.textContent = ""; return; }
+    n.textContent = msg; n.hidden = false;
+  }
+
+  /* ---------- storage: Google Sheet via Apps Script ---------- */
+  var KEY_STORE = "task-tracker-passcode";
+  var passcode = "";
+  try { passcode = localStorage.getItem(KEY_STORE) || ""; } catch (e) {}
+  var pending = 0;                 // writes still on their way to the Sheet
+  var writeQueue = Promise.resolve();
+
+  function setSync(state, text) {
+    var el = $("syncState");
+    el.className = "dot " + state; el.textContent = text;
+  }
+  function timeNow() { return new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
+
+  function api(payload) {
+    payload.key = passcode;
+    return fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },   // plain text avoids a CORS pre-check
+      body: JSON.stringify(payload),
+      redirect: "follow"
+    }).then(function (r) {
+      if (!r.ok) throw { code: "http", detail: r.status };
+      return r.json();
+    }).then(function (j) {
+      if (!j || !j.ok) throw { code: (j && j.error) || "server_error", detail: j && j.detail };
+      return j;
+    });
+  }
+
+  function handleError(e, what) {
+    if (e && e.code === "wrong_passcode") {
+      passcode = "";
+      try { localStorage.removeItem(KEY_STORE); } catch (x) {}
+      setSync("err", "Passcode needed");
+      askPasscode(loaded ? "The passcode was not accepted. Enter it again." : "");
+      return;
+    }
+    setSync("err", what + " failed at " + timeNow());
+    if (e && e.code === "http") notice("Could not reach the Google Sheet (error " + e.detail + "). Check the web app URL and that it is deployed for \"Anyone\".");
+    else if (e && e.code === "server_error") notice("The Google Sheet reported a problem: " + (e.detail || "unknown error") + ". Select Refresh to reload.");
+    else notice("Could not reach the Google Sheet. Check your internet connection, then select Refresh.");
+  }
+
+  function applyServer(list) {
+    if (pending > 0) return;       // a newer change is still saving; wait for it
+    tasks = Array.isArray(list) ? list : [];
+    loaded = true;
+    render();
+  }
+
+  function loadTasks() {
+    if (!passcode && needsPasscode) { askPasscode(""); return; }
+    setSync("busy", "Loading…");
+    return api({ action: "list" }).then(function (j) {
+      applyServer(j.tasks); notice(""); setSync("ok", "Synced with Google Sheet at " + timeNow());
+    }).catch(function (e) { if (!loaded) { loaded = true; render(); } handleError(e, "Loading"); });
+  }
+
+  function send(payload) {
+    pending++;
+    setSync("busy", "Saving…");
+    writeQueue = writeQueue.then(function () {
+      return api(payload).then(function (j) {
+        pending--;
+        if (pending === 0) { applyServer(j.tasks); notice(""); setSync("ok", "Saved to Google Sheet at " + timeNow()); }
+      }).catch(function (e) {
+        pending--;
+        handleError(e, "Saving");
+        if (pending === 0 && !(e && e.code === "wrong_passcode")) loadTasks();   // show what the Sheet really holds
+      });
+    });
+    return writeQueue;
+  }
+
+  function putTask(t) {
+    var i = tasks.findIndex(function (x) { return x.id === t.id; });
+    if (i >= 0) tasks[i] = t; else tasks.push(t);
+    render();
+    return send({ action: "save", task: t });
+  }
+  function removeTask(id) {
+    tasks = tasks.filter(function (x) { return x.id !== id; });
+    render();
+    return send({ action: "delete", id: id });
+  }
+
+  /* ---------- passcode ---------- */
+  var needsPasscode = true;        // set to false only if PASSCODE in Code.gs is ""
+  function askPasscode(msg) {
+    $("keyErr").textContent = msg || "";
+    $("keyInput").value = "";
+    var d = $("keyDlg");
+    if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
+    $("keyInput").focus();
+  }
+  $("keyForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var v = $("keyInput").value.trim(); if (!v) return;
+    passcode = v;
+    $("keyErr").textContent = "Checking…";
+    api({ action: "list" }).then(function (j) {
+      try { localStorage.setItem(KEY_STORE, passcode); } catch (x) {}
+      var d = $("keyDlg"); if (d.close) d.close(); else d.removeAttribute("open");
+      applyServer(j.tasks); notice(""); setSync("ok", "Synced with Google Sheet at " + timeNow());
+    }).catch(function (err) {
+      if (err && err.code === "wrong_passcode") { $("keyErr").textContent = "That passcode is not correct. Try again."; passcode = ""; }
+      else { $("keyErr").textContent = "Could not reach the Google Sheet. Check your connection and try again."; }
+    });
+  });
+  $("keyDlg").addEventListener("cancel", function (e) { e.preventDefault(); });   // passcode is required
+  $("lock").addEventListener("click", function () {
+    passcode = ""; try { localStorage.removeItem(KEY_STORE); } catch (x) {}
+    askPasscode("");
+  });
+  $("refresh").addEventListener("click", function () { if (pending === 0) loadTasks(); });
+
+  function setStatus(t, s) {
+    if (t.status === s) return;
+    var n = Object.assign({}, t, { status: s, updatedAt: Date.now() });
+    n.completedAt = s === "done" ? Date.now() : null;
+    putTask(n);
+  }
+
+  /* ---------- render ---------- */
+  function visible() {
+    var q = $("q").value.trim().toLowerCase(), owner = $("fOwner").value, sort = $("sort").value;
+    var out = tasks.filter(function (t) {
+      if (filter === "open" && t.status === "done") return false;
+      if (filter === "doing" && t.status !== "doing") return false;
+      if (filter === "blocked" && t.status !== "blocked") return false;
+      if (filter === "done" && t.status !== "done") return false;
+      if (filter === "overdue" && !isOverdue(t)) return false;
+      if (owner && (t.owner || "") !== owner) return false;
+      if (q && ((t.title || "") + " " + (t.owner || "") + " " + (t.notes || "")).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    out.sort(function (a, b) {
+      var da = a.status === "done" ? 1 : 0, dbb = b.status === "done" ? 1 : 0;
+      if (da !== dbb) return da - dbb;                       // finished tasks sink to the bottom
+      if (sort === "priority") {
+        var p = (PRI_RANK[a.priority] || 0) - (PRI_RANK[b.priority] || 0);
+        if (p) return p;
+      } else if (sort === "new") {
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      } else if (sort === "updated") {
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      }
+      var ad = a.due || "9999-12-31", bd = b.due || "9999-12-31";
+      if (ad !== bd) return ad < bd ? -1 : 1;
+      return (a.createdAt || 0) - (b.createdAt || 0);
+    });
+    return out;
+  }
+
+  function dueChip(t) {
+    if (!t.due) return '<span>No due date</span>';
+    var label = "Due " + esc(fmtDate(t.due));
+    if (t.status === "done") return "<span>" + label + "</span>";
+    var d = dayDiff(t.due);
+    if (d < 0) return '<span class="pill late">Overdue ' + (-d) + (d === -1 ? " day" : " days") + "</span><span>" + label + "</span>";
+    if (d === 0) return '<span class="pill soon">Due today</span>';
+    if (d <= 2) return '<span class="pill soon">Due in ' + d + (d === 1 ? " day" : " days") + "</span><span>" + label + "</span>";
+    return "<span>" + label + "</span>";
+  }
+
+  function row(t) {
+    var dis = readOnly ? " disabled" : "";
+    var opts = Object.keys(STATUS).map(function (k) {
+      return '<option value="' + k + '"' + (t.status === k ? " selected" : "") + ">" + STATUS[k] + "</option>";
+    }).join("");
+    var tail = t.status === "done" && t.completedAt ? "<span>Completed " + esc(fmtStamp(t.completedAt)) + "</span>"
+      : (t.updatedAt ? "<span>Updated " + esc(fmtStamp(t.updatedAt)) + "</span>" : "");
+    return '<article class="task' + (isOverdue(t) ? " overdue" : "") + '" data-s="' + esc(t.status) + '" data-id="' + esc(t.id) + '">' +
+      '<input type="checkbox" data-act="check" aria-label="Mark done: ' + esc(t.title) + '"' + (t.status === "done" ? " checked" : "") + dis + ">" +
+      "<div>" +
+        '<div class="title">' + esc(t.title) + "</div>" +
+        '<div class="meta"><span class="pill ' + esc(t.priority) + '">' + esc(PRI[t.priority] || "Medium") + "</span>" +
+          (t.owner ? "<span>" + esc(t.owner) + "</span>" : "<span>Unassigned</span>") + dueChip(t) + tail + "</div>" +
+        (t.notes ? '<div class="notes">' + esc(t.notes) + "</div>" : "") +
+      "</div>" +
+      '<div class="ctl">' +
+        '<select data-act="status" aria-label="Status of ' + esc(t.title) + '"' + dis + ">" + opts + "</select>" +
+        '<button class="btn ghost small" data-act="edit" type="button"' + dis + ">Edit</button>" +
+      "</div></article>";
+  }
+
+  function render() {
+    var all = tasks.length;
+    var done = tasks.filter(function (t) { return t.status === "done"; }).length;
+    var pct = all ? Math.round(done / all * 100) : 0;
+    $("pDone").textContent = done; $("pAll").textContent = all; $("pPct").textContent = pct + "%";
+    $("pBar").style.width = pct + "%";
+    $("nOpen").textContent = all - done;
+    $("nDoing").textContent = tasks.filter(function (t) { return t.status === "doing"; }).length;
+    $("nBlocked").textContent = tasks.filter(function (t) { return t.status === "blocked"; }).length;
+    $("nOverdue").textContent = tasks.filter(isOverdue).length;
+    $("nDone").textContent = done;
+    document.querySelectorAll(".tile").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.dataset.f === filter ? "true" : "false");
+    });
+
+    // owner lists
+    var owners = Array.from(new Set(tasks.map(function (t) { return t.owner || ""; }).filter(Boolean))).sort();
+    var sel = $("fOwner"), cur = sel.value;
+    sel.innerHTML = '<option value="">Everyone</option>' + owners.map(function (o) { return '<option value="' + esc(o) + '">' + esc(o) + "</option>"; }).join("");
+    sel.value = owners.indexOf(cur) >= 0 ? cur : "";
+    $("owners").innerHTML = owners.map(function (o) { return '<option value="' + esc(o) + '">'; }).join("");
+
+    ["aTitle", "aOwner", "aPriority", "aDue", "aBtn"].forEach(function (id) { $(id).disabled = readOnly; });
+
+    var list = $("list");
+    if (!loaded) { list.innerHTML = '<div class="empty">Loading tasks…</div>'; $("count").textContent = ""; return; }
+    var v = visible();
+    $("count").textContent = all ? "Showing " + v.length + " of " + all + (all === 1 ? " task" : " tasks") : "";
+    if (!all) { list.innerHTML = '<div class="empty">No tasks yet. Add your first one above.</div>'; return; }
+    if (!v.length) { list.innerHTML = '<div class="empty">No tasks match these filters. Select Show all to reset.</div>'; return; }
+    list.innerHTML = v.map(row).join("");
+  }
+
+  /* ---------- events ---------- */
+  $("addForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (readOnly) return;
+    var title = $("aTitle").value.trim();
+    if (!title) return;
+    var now = Date.now();
+    putTask({
+      id: newId(), title: title, owner: $("aOwner").value.trim(), priority: $("aPriority").value,
+      status: "todo", due: $("aDue").value, notes: "", createdAt: now, updatedAt: now, completedAt: null
+    });
+    $("aTitle").value = ""; $("aDue").value = ""; $("aTitle").focus();
+  });
+
+  document.querySelectorAll(".tile").forEach(function (b) {
+    b.addEventListener("click", function () { filter = filter === b.dataset.f ? "" : b.dataset.f; render(); });
+  });
+  ["q", "fOwner", "sort"].forEach(function (id) { $(id).addEventListener("input", render); });
+  $("clear").addEventListener("click", function () { filter = ""; $("q").value = ""; $("fOwner").value = ""; render(); });
+
+  function find(el) {
+    var a = el.closest(".task"); if (!a) return null;
+    return tasks.find(function (t) { return t.id === a.dataset.id; }) || null;
+  }
+  $("list").addEventListener("change", function (e) {
+    var t = find(e.target); if (!t || readOnly) return;
+    if (e.target.dataset.act === "check") setStatus(t, e.target.checked ? "done" : "todo");
+    if (e.target.dataset.act === "status") setStatus(t, e.target.value);
+  });
+  $("list").addEventListener("click", function (e) {
+    if (e.target.dataset.act !== "edit") return;
+    var t = find(e.target); if (!t) return;
+    editingId = t.id; deleteArmed = false;
+    $("eTitle").value = t.title || ""; $("eOwner").value = t.owner || ""; $("eDue").value = t.due || "";
+    $("ePriority").value = t.priority || "medium"; $("eStatus").value = t.status || "todo"; $("eNotes").value = t.notes || "";
+    $("eDelete").textContent = "Delete task"; $("eDelete").className = "btn ghost";
+    $("eStamp").textContent = "Created " + fmtStamp(t.createdAt) + (t.completedAt ? " · Completed " + fmtStamp(t.completedAt) : "");
+    var d = $("dlg");
+    if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+  });
+  function closeDlg() { var d = $("dlg"); if (d.close) d.close(); else d.removeAttribute("open"); editingId = null; }
+  $("eCancel").addEventListener("click", closeDlg);
+  $("eDelete").addEventListener("click", function () {
+    if (!deleteArmed) {
+      deleteArmed = true; $("eDelete").textContent = "Confirm delete"; $("eDelete").className = "btn danger"; return;
+    }
+    var id = editingId; closeDlg(); if (id) removeTask(id);
+  });
+  $("editForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var t = tasks.find(function (x) { return x.id === editingId; });
+    var title = $("eTitle").value.trim();
+    if (!t || !title) { closeDlg(); return; }
+    var s = $("eStatus").value;
+    var n = Object.assign({}, t, {
+      title: title, owner: $("eOwner").value.trim(), due: $("eDue").value, priority: $("ePriority").value,
+      status: s, notes: $("eNotes").value.trim(), updatedAt: Date.now()
+    });
+    if (s === "done" && t.status !== "done") n.completedAt = Date.now();
+    if (s !== "done") n.completedAt = null;
+    closeDlg(); putTask(n);
+  });
+
+  /* ---------- start ---------- */
+  $("today").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  render();
+
+  if (!API_URL || API_URL.indexOf("https://script.google.com/macros/s/AKfycbzdWholh4b1Y5cQ9FgqpISwr6JMgzAW2ZxXXOYf7vjW6BJOOfxRGLxE1kLK3GLhRS2NaA/exec") === 0) {
+    loaded = true; render();
+    setSync("err", "Not connected");
+    notice("Setup needed: open this file, find API_URL near the bottom, and paste your Apps Script web app URL. See SETUP-GUIDE for steps.");
+    ["refresh", "lock"].forEach(function (id) { $(id).disabled = true; });
+    readOnly = true; render();
+  } else if (passcode || !needsPasscode) {
+    loadTasks();
+  } else {
+    setSync("err", "Passcode needed"); askPasscode("");
+  }
+
+  // Pick up teammates' changes: every 60 seconds while the page is in view, and when you come back to the tab.
+  setInterval(function () {
+    if (document.visibilityState === "visible" && pending === 0 && passcode && !$("dlg").open && loaded) loadTasks();
+  }, 60000);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && pending === 0 && passcode && loaded) loadTasks();
+  });
+})();
+</script>
+</body>
+</html>
